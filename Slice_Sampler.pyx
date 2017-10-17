@@ -8,24 +8,26 @@ import numpy as np
 import ctypes
 cimport numpy as np
 cimport cython
-from libc.stdint cimport *
+
 cdef extern from "math.h":
      cdef double INFINITY
      cdef double NAN
-     cdef int isinf(double) nogil
+     
  
 from libcpp.vector cimport vector
-"""
-****************************      slice sampling      ****************************    
-Reference: Neal, R.M. (2003). Slice sampling. The Annals of Statistics 31, 705-767.
-**********************************************************************************
 
-"""
+#****************************************************************************************************************************************** 
+#************************************************              slice sampling              ************************************************        
+#                      Reference: Neal, R.M. (2003). Slice sampling. The Annals of Statistics 31, 705-767.
+#****************************************************************************************************************************************** 
+#****************************************************************************************************************************************** 
+
 
 cdef extern from "<math.h>" nogil:
      cdef double floor(double)
      cdef double log(double)
      cdef double pow(double, double)
+     
 cdef extern from "stdint.h":
     ctypedef unsigned long long uint64_t  
     
@@ -59,7 +61,8 @@ cdef class wrapper:
     def __unsafe_set(self, ptr):
         self.wrapped = <func_t><void *><size_t>ptr   
         
-
+cdef bint _isinf(double x):
+    return (x == INFINITY)
 
 cdef void stepping_out(double* L, double *R, double* g_interv, double* x0, double* y,
                        double* w, int* m, double* bound, int* is_bound, func_t f):
@@ -443,10 +446,10 @@ def slice_sampler(int n_sample,
      bound[1] = INFINITY
      for 0<= i <n_sample:
               vertical = f(x0) - exponential(r, 1) 
-              if isinf(bound[0]):
+              if _isinf(bound[0]):
                  is_bound[0]=0
                      
-              if isinf(bound[1]):
+              if _isinf(bound[1]):
                  is_bound[1]=0
 
               if (interval_method=='doubling'):
