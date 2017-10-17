@@ -8,11 +8,13 @@ import numpy as np
 import ctypes
 cimport numpy as np
 cimport cython
-from numpy.math cimport INFINITY, NAN
-cdef extern from "numpy/npy_math.h":
-    bint npy_isnan(double)
-    bint npy_isinf(double)
-    
+
+cdef extern from "numpy/npy_math.h" :
+    int isinf "npy_isinf"(long double)  # -1 / 0 / 1
+    bint isnan "npy_isnan"(long double)
+    long double NAN "NPY_NAN"
+    long double INFINITY "NPY_INFINITY"
+ 
 from libcpp.vector cimport vector
 """
 ****************************      slice sampling      ****************************    
@@ -419,7 +421,7 @@ def slice_sampler(int n_sample,
                   int p=None,
                   int unimodal=1,
                   double w_start=0.1,
-                  char *interval_method ='doubling'):
+                  unsigned char[:] interval_method ='doubling'):
     
      cdef double x0 = x0_start
      cdef double vertical, w   
@@ -443,47 +445,43 @@ def slice_sampler(int n_sample,
      bound[1] = INFINITY
      for 0<= i <n_sample:
               vertical = f(x0) - exponential(r, 1) 
-              if (interval_method=='doubling'):
-                  if npy_isinf(bound[0]):
-                     is_bound[0]=False
+              if (isinf(bound[0])!=0):
+                 is_bound[0]=False
                      
-                  if npy_isinf(bound[1]):
-                     is_bound[1]=False
+              if (isinf(bound[1])!=0):
+                 is_bound[1]=False
+
+              if (interval_method=='doubling'):
                      
                   doubling(&L, 
                            &R, 
-                           &g_interv, 
+                           &g_interv[0], 
                            &x0, 
                            &vertical,
                            &w, 
                            &p, 
-                           &bound, 
-                           &is_bound,
+                           &bound[0], 
+                           <int *>(&is_bound[0]),
                            &unimodal,
                            f.wrapped)
               elif (interval_method=='stepping'):
-                  if npy_isinf(bound[0]):
-                     is_bound[0]=False
-                     
-                  if npy_isinf(bound[1]):
-                     is_bound[1]=False
 
                   stepping_out(&L, 
                                &R, 
-                               &g_interv, 
+                               &g_interv[0], 
                                &x0, 
                                &vertical,
                                &w, 
                                &m, 
-                               &bound, 
-                               &is_bound, 
+                               &bound[0], 
+                               <int *>(&is_bound[0]), 
                                f.wrapped)     
               else:
                   raise ValueError("%s is not an acceptable interval method for slice sampler"%interval_method )
               shrinkage(&L, 
                         &R, 
                         &x1, 
-                        &g_interv, 
+                        &g_interv[0], 
                         &x0, 
                         &vertical,
                         &w, 
