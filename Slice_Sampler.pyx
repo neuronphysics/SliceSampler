@@ -8,12 +8,11 @@ import numpy as np
 import ctypes
 cimport numpy as np
 cimport cython
-
-cdef extern from "numpy/npy_math.h" :
-    int isinf "npy_isinf"(long double)  # -1 / 0 / 1
-    bint isnan "npy_isnan"(long double)
-    long double NAN "NPY_NAN"
-    long double INFINITY "NPY_INFINITY"
+from libc.stdint cimport *
+cdef extern from "math.h":
+     cdef double INFINITY
+     cdef double NAN
+     cdef int isinf(double) nogil
  
 from libcpp.vector cimport vector
 """
@@ -414,7 +413,6 @@ cdef wrapper make_wrapper(func_t f):
 
 def slice_sampler(int n_sample,
                   wrapper f,                                    
-                  int a,
                   double x0_start=0,
                   bint adapt_w=False,
                   int m=None,
@@ -441,15 +439,15 @@ def slice_sampler(int n_sample,
      cdef int accept
      L = 0.
      R = 0.
-     bound[0] = -INFINITY #https://docs.scipy.org/doc/numpy/reference/c-api.coremath.html
+     bound[0] = -INFINITY 
      bound[1] = INFINITY
      for 0<= i <n_sample:
               vertical = f(x0) - exponential(r, 1) 
-              if (isinf(bound[0])!=0):
-                 is_bound[0]=False
+              if isinf(bound[0]):
+                 is_bound[0]=0
                      
-              if (isinf(bound[1])!=0):
-                 is_bound[1]=False
+              if isinf(bound[1]):
+                 is_bound[1]=0
 
               if (interval_method=='doubling'):
                      
@@ -488,19 +486,7 @@ def slice_sampler(int n_sample,
                         &doubling_used, 
                         &unimodal, 
                         f.wrapped)
-              if unimodal: 
-                 accept_doubling(&accept, 
-                                 &x0, 
-                                 &x1, 
-                                 &vertical, 
-                                 &w, 
-                                 &L, 
-                                 &R, 
-                                 f.wrapped)
-                 if accept:
-                    samples.push_back(x1)
-              else:
-                 samples.push_back(x1) 
+              samples.push_back(x1) 
               x0=x1
               if adapt_w:
                  interval_length=R-L
