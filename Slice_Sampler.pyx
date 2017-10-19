@@ -21,11 +21,12 @@ from libcpp.vector cimport vector
 #****************************************************************************************************************************************** 
 
 
-cdef extern from "<math.h>" nogil:
+cdef extern from "<math.h>":
      cdef double floor(double)
      cdef double log(double)
      cdef double pow(double, double)
      cdef double tgamma(double) 
+     
 cdef extern from "stdint.h":
     ctypedef unsigned long long uint64_t  
     
@@ -84,9 +85,10 @@ cdef double* stepping_out(double x0, double y, double w, int m, func_t f):
      interv[1] = interv[0] + w
      
      #Get numbers of steps tried to left and to right
-     u = unif_interval(r,0,1)
-     J = <uint64_t>floor(m*u)
-     K = (m-1)-J
+     if m>0:
+        u = unif_interval(r,0,1)
+        J = <uint64_t>floor(m*u)
+        K = (m-1)-J
      
      #Initial evaluation of g in the left and right limits of the interval 
      g_interv[0]=f(interv[0])
@@ -96,18 +98,20 @@ cdef double* stepping_out(double x0, double y, double w, int m, func_t f):
      while (g_interv[0] > y):
            interv[0] -= w
            g_interv[0]=f(interv[0])
-           J-=1
-           if (J<= 0):
-               break
+           if m>0:
+              J-=1
+              if (J<= 0):
+                 break
   
 
      #Step to right until leaving the slice */
      while (g_interv[1] > y):
            interv[1] += w
            g_interv[1]=f(interv[1])
-           K-=1
-           if (K<= 0):
-               break
+           if m>0:
+              K-=1
+              if (K<= 0):
+                 break
      #http://cython.readthedocs.io/en/latest/src/tutorial/memory_allocation.html      
      try:
          return interv
@@ -139,8 +143,8 @@ cdef double* doubling(double x0, double y, double w, int p, func_t f):
      u = unif_interval(r,0,1)
      interv[0] = x0 - w*u
      interv[1] = interv[0] + w
-
-     K = p
+     if p>0:
+        K = p
 
      # Initial evaluation of g in the left and right limits of the interval 
      g_interv[0]= f(interv[0])
@@ -156,9 +160,10 @@ cdef double* doubling(double x0, double y, double w, int p, func_t f):
            else:
               interv[1] += (interv[1] - interv[0])
               g_interv[1]=f(interv[1])
-           K-=1
-           if (K<=0):
-               break
+           if p>0:
+              K-=1
+              if (K<=0):
+                  break
      try:
          return interv
      finally:
@@ -355,11 +360,10 @@ cdef void exact_sampler(double* x1, double* L, double* R, double* g_interv,  dou
 #***** ----------------------------------------------------------------------------------------- *****
 #*****            g(x)=log(f(x)): Compute log-density of a full conditional distribution         *****
 #***** ----------------------------------------------------------------------------------------- *****
-cdef double log_beta(double x) nogil:
+cdef double log_beta(double x):
      #Log of beta distribution with second argument b=1
      cdef double a=5.
-     cdef double b=1.
-     return log(tgamma(a+b)/(tgamma(a)*tgamma(b)))+(a-1.)*log(x)
+     return log(a)+(a-1.)*log(x)
      
 cdef wrapper make_wrapper(func_t f):
     cdef wrapper W=wrapper()
@@ -368,8 +372,8 @@ cdef wrapper make_wrapper(func_t f):
 
 def slice_sampler(int n_sample,
                   wrapper f, 
-                  int m,
-                  int p,
+                  int m = 0,
+                  int p = 0,
                   double x0_start=0.0, 
                   bint adapt_w=False, 
                   double w_start=0.1,
@@ -396,14 +400,12 @@ def slice_sampler(int n_sample,
      cdef vector[double] samples #http://cython.readthedocs.io/en/latest/src/userguide/wrapping_CPlusPlus.html
      w=w_start
      cdef Py_ssize_t i
-     cdef int accept
      cdef np.ndarray[ndim=1, dtype=np.float64_t] interv
      cdef np.float64_t[:] view
      for 0<= i <n_sample:
               expon = exponential(r, 1) 
               vertical = f.wrapped(x0) - expon
-              print vertical
-              
+              print x0,f.wrapped(x0),vertical              
               if (s=='doubling'):
                   view=<np.float64_t[:2]>doubling(x0, vertical, w, p, f.wrapped)
                   interv= np.asarray(view)
@@ -425,10 +427,7 @@ def slice_sampler(int n_sample,
      return samples    
    
 def run(int n_sample,               
-        double x0_start=0, 
-        bint adapt_w=False, 
-        int m=100,
-        int p=15,
-        double w_start=2.):
+        double x0_start=0.01, 
+        double w_start=2.5):
     wrap_f=make_wrapper(log_beta)    
-    return slice_sampler(n_sample, wrap_f, m, p, x0_start, adapt_w,  w_start)
+    return slice_sampler(n_sample, wrap_f,x0_start=x0_start, w_start=w_start)

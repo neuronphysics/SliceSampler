@@ -11,7 +11,7 @@ setup(
         Extension("Slice_Sampler", 
                   sources=["Slice_Sampler.pyx"],
                   language="c++", 
-                  libraries=["stdc++"],
+                  libraries=["stdc++","gsl", "gslcblas"],
                   include_dirs=[numpy.get_include()],
                   extra_compile_args=extra_compile_args,
                   extra_link_args=extra_link_args)
