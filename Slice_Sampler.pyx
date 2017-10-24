@@ -9,9 +9,8 @@ import ctypes
 cimport numpy as np
 cimport cython
 cimport python_unicode
-from libc.stdlib cimport malloc, free
 
-     
+from cython.view cimport memoryview, array  
 from libcpp.vector cimport vector
 
 #****************************************************************************************************************************************** 
@@ -19,13 +18,17 @@ from libcpp.vector cimport vector
 #                      Reference: Neal, R.M. (2003). Slice sampling. The Annals of Statistics 31, 705-767.
 #****************************************************************************************************************************************** 
 #****************************************************************************************************************************************** 
-
+cdef extern from "math.h":
+     cdef double INFINITY
+     cdef double NAN
 
 cdef extern from "<math.h>":
      cdef double floor(double)
      cdef double log(double)
      cdef double pow(double, double)
      cdef double tgamma(double) 
+     double fabs(double)
+     
      
 cdef extern from "stdint.h":
     ctypedef unsigned long long uint64_t  
@@ -57,9 +60,13 @@ cdef class wrapper:
     def __unsafe_set(self, ptr):
         self.wrapped = <func_t><void *><size_t>ptr   
         
+cdef bint _isinf(double x):
+    return (fabs(x) == INFINITY)
 
+cdef bint _isnan(double x):
+    return (x == NAN)
 
-cdef double* stepping_out(double x0, double y, double w, int m, func_t f):
+cdef double[::1] stepping_out(double x0, double y, double w, int m, func_t f):
      """
      Function for finding an interval around the current point 
      using the "stepping out" procedure (Figure 3, Neal (2003))
@@ -73,16 +80,15 @@ cdef double* stepping_out(double x0, double y, double w, int m, func_t f):
        Output:
      interv[2] ------------ the left and right sides of found interval
      """
-     cdef double *interv = <double *>malloc(2 * cython.sizeof(double))
-     if interv is NULL:
-        raise MemoryError()
+     cdef double[::1] interv =array((2,), itemsize=sizeof(double), format='d')
      cdef double u
      cdef int J, K
      cdef double g_interv[2]
      #Initial guess for the interval
      u = unif_interval(r,0,1)
+     
      interv[0] = x0 - w*u
-     interv[1] = interv[0] + w
+     interv[1] = interv[0]+ w
      
      #Get numbers of steps tried to left and to right
      if m>0:
@@ -95,7 +101,7 @@ cdef double* stepping_out(double x0, double y, double w, int m, func_t f):
      g_interv[1]=f(interv[1])
      
      #Step to left until leaving the slice 
-     while (g_interv[0] > y):
+     while ((g_interv[0] > y) and (not _isnan(g_interv[0]))):
            interv[0] -= w
            g_interv[0]=f(interv[0])
            if m>0:
@@ -105,21 +111,16 @@ cdef double* stepping_out(double x0, double y, double w, int m, func_t f):
   
 
      #Step to right until leaving the slice */
-     while (g_interv[1] > y):
+     while ((g_interv[1] > y) and (not _isnan(g_interv[1]))):
            interv[1] += w
            g_interv[1]=f(interv[1])
            if m>0:
               K-=1
               if (K<= 0):
                  break
-     #http://cython.readthedocs.io/en/latest/src/tutorial/memory_allocation.html      
-     try:
-         return interv
-     finally:
-         # return the previously allocated memory to the system
-         free(interv)
+     return interv
      
-cdef double* doubling(double x0, double y, double w, int p, func_t f):
+cdef double[::1] doubling(double x0, double y, double w, int p, func_t f):
      """
      Function for finding an interval around the current point
      using the "doubling" procedure (Figure 4, Neal (2003))
@@ -132,9 +133,7 @@ cdef double* doubling(double x0, double y, double w, int p, func_t f):
        Output:
      interv[2] ------------ the left and right sides of found interval    
      """
-     cdef double* interv = <double *>malloc(2 * cython.sizeof(double))
-     if interv is NULL:
-        raise MemoryError()
+     cdef double[::1] interv =array((2,), itemsize=sizeof(double), format='d')
      cdef double u
      cdef int K     
      cdef bint now_left
@@ -142,7 +141,8 @@ cdef double* doubling(double x0, double y, double w, int p, func_t f):
      #Initial guess for the interval
      u = unif_interval(r,0,1)
      interv[0] = x0 - w*u
-     interv[1] = interv[0] + w
+     interv[1] = interv[0]+ w
+     
      if p>0:
         K = p
 
@@ -152,23 +152,20 @@ cdef double* doubling(double x0, double y, double w, int p, func_t f):
 
      # Perform doubling until both ends are outside the slice 
      while ((g_interv[0] > y) or (g_interv[1] > y)):
-           u = unif_interval(r,0,1)              
-           now_left = (u < 0.5)           
-           if (now_left):
-              interv[0] -= (interv[1] - interv[0])
-              g_interv[0]=f(interv[0])
-           else:
-              interv[1] += (interv[1] - interv[0])
-              g_interv[1]=f(interv[1])
-           if p>0:
-              K-=1
-              if (K<=0):
-                  break
-     try:
-         return interv
-     finally:
-         # return the previously allocated memory to the system
-         free(interv)
+                    u = unif_interval(r,0,1)              
+                    now_left = (u < 0.5)           
+                    if (now_left):
+                       interv[0] -= (interv[1] - interv[0])
+                       g_interv[0]=f(interv[0])
+                    else:
+                       interv[1] += (interv[1] - interv[0])
+                       g_interv[1]=f(interv[1])
+                    
+                    if p>0:
+                       K -= 1
+                       if (K<=0):
+                           break
+     return interv
      
 cdef bint accept_doubling(double x0, double x1, double y, double w, np.ndarray[ndim=1, dtype=np.float64_t] interv, func_t f):
      """
@@ -227,26 +224,23 @@ cdef double shrinkage(double x0, double y, double w, np.ndarray[ndim=1, dtype=np
      cdef double L_bar, R_bar
      L_bar=interv[0]
      R_bar=interv[1]
-     x1 = L_bar + 0.5*(R_bar - L_bar)     
+     x1 = L_bar + 0.5*(R_bar - L_bar)  
+     
      while True:
            u = unif_interval(r,0,1)
            x1 = L_bar + u*(R_bar - L_bar)
            gx1=f(x1)
            if (doubling):
               accept=accept_doubling(x0, x1, y, w, interv, f )
-              if ((gx1 > y) and accept):                 
-                  break
-              if (x1 < x0):
-                  L_bar = x1
-              else:
-                  R_bar = x1
            else:
-               if (gx1 > y):
-                   break
-               if (x1 < x0):
-                 L_bar = x1
-               else:
-                 R_bar = x1
+              accept=True
+           
+           if ((gx1 > y) and accept):                 
+              break
+           if (x1 < x0):
+              L_bar = x1
+           else:
+              R_bar = x1
      return x1
  
  
@@ -363,8 +357,9 @@ cdef void exact_sampler(double* x1, double* L, double* R, double* g_interv,  dou
 cdef double log_beta(double x):
      #Log of beta distribution with second argument b=1
      cdef double a=5.
-     return log(a)+(a-1.)*log(x)
-     
+     cdef double b=1.
+     return log(a)+(a-1.)*log(x)+(b-1.)*log(1.-x)     
+   
 cdef wrapper make_wrapper(func_t f):
     cdef wrapper W=wrapper()
     W.wrapped=f
@@ -401,21 +396,21 @@ def slice_sampler(int n_sample,
      w=w_start
      cdef Py_ssize_t i
      cdef np.ndarray[ndim=1, dtype=np.float64_t] interv
-     cdef np.float64_t[:] view
+     cdef double[::1] vec_view
      for 0<= i <n_sample:
               expon = exponential(r, 1) 
               vertical = f.wrapped(x0) - expon
-              print x0,f.wrapped(x0),vertical              
+                            
               if (s=='doubling'):
-                  view=<np.float64_t[:2]>doubling(x0, vertical, w, p, f.wrapped)
-                  interv= np.asarray(view)
-                  print "after:", interv
+                  vec_view=doubling(x0, vertical, w, p, f.wrapped)
+                  interv= np.asarray(vec_view)
+                  
               elif (s==u'stepping'):
-                  view=<np.float64_t[:2]>stepping_out(x0, vertical, w, m, f.wrapped)
-                  interv= np.asarray(view)
+                  vec_view=stepping_out(x0, vertical, w, m, f.wrapped)
+                  interv= np.asarray(vec_view)
               else:
                   raise ValueError("%s is not an acceptable interval method for slice sampler"%s )
-              print "finish expanding the range.."
+              
               x0=shrinkage(x0, vertical, w, interv, doubling_used, f.wrapped)
               samples.push_back(x0) 
               
@@ -423,11 +418,11 @@ def slice_sampler(int n_sample,
                  interval_length=interv[1]-interv[0]
                  w=pow(w,w_n/(w_n+1))*pow(interval_length/2.,1./(w_n+1.))
                  w_n+=1.
-              print x0
+              
      return samples    
-   
+
 def run(int n_sample,               
-        double x0_start=0.01, 
+        double x0_start=0., 
         double w_start=2.5):
     wrap_f=make_wrapper(log_beta)    
     return slice_sampler(n_sample, wrap_f,x0_start=x0_start, w_start=w_start)
