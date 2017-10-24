@@ -101,7 +101,7 @@ cdef double[::1] stepping_out(double x0, double y, double w, int m, func_t f):
      g_interv[1]=f(interv[1])
      
      #Step to left until leaving the slice 
-     while ((g_interv[0] > y) and (not _isnan(g_interv[0]))):
+     while (g_interv[0] > y):
            interv[0] -= w
            g_interv[0]=f(interv[0])
            if m>0:
@@ -111,7 +111,7 @@ cdef double[::1] stepping_out(double x0, double y, double w, int m, func_t f):
   
 
      #Step to right until leaving the slice */
-     while ((g_interv[1] > y) and (not _isnan(g_interv[1]))):
+     while (g_interv[1] > y):
            interv[1] += w
            g_interv[1]=f(interv[1])
            if m>0:
